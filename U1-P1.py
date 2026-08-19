@@ -1,40 +1,43 @@
-NLP  = {'Domainname': "NLP",
+nlp  = {
+'Domain_name': "NLP",
 'Description': "Natural language processing ",
 'Realword': "text summariser"  ,
 'libraries': "nltk,spacy" }
 
-ComputerVision={
-'Domain name' : "NLP",
+computer_vision = {
+'Domain_name' : "NLP",
+'Description ': "Natural language processing ",
+'Real_Word' : "text summariser" ,
+'libraries' : "nltk,spacy" }
+
+speech_processing = {
+'Domain_name' : "NLP",
 'Description ': "Natural language processing ",
 'Real-Word' : "text summariser" ,
 'libraries' : "nltk,spacy" }
 
-SpeechProcessing={
-'Domain name' : "NLP",
+robotics = {
+'Domain_name' : "NLP",
 'Description ': "Natural language processing ",
-'Real-Word' : "text summariser" ,
-'libraries' : "nltk,spacy" }
-
-Robotics={
-'Domain name' : "NLP",
-'Description ': "Natural language processing ",
-'Real-Word' : "text summariser" ,
+'Real_Word' : "text summariser" ,
 'libraries' : "nltk,spacy" }
 
 
 print('Please seclt your option')
-print('1.NLP')
-print('2.Coputer vision')
-print('3.Speech Processing')
-print('4.Robotics')
+print('1.nlp')
+print('2.coputer_vision')
+print('3.speech_processing')
+print('4.robotics')
 
 choic=int(input('Enter your number'))
 
 if choic==1:
-    print('Domain name : "NLP" ')
+    print(nlp)
 elif choic==2:
-    print('Description : "Natural language processing" ')
+    print(computer_vision)
 elif choic==3:
-    print('Real-Word : "text summariser" ')
+    print(speech_processing)
 elif choic==4:
-    print('libraries : "nltk,spacy" ')
+    print(robotics)
+else:
+    print("Enter Valid Number")
