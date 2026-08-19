@@ -1,28 +1,26 @@
 nlp  = {
-'Domain_name': "NLP",
-'Description': "Natural language processing ",
-'Realword': "text summariser"  ,
-'libraries': "nltk,spacy" }
+'Domain_name': "Natural language processing",
+'Description': " NLP helps computer understand human language.",
+'Applications': "Chatbots"  ,
+'Python libraries': "NLTK,spaCy" }
 
 computer_vision = {
-'Domain_name' : "NLP",
-'Description ': "Natural language processing ",
-'Real_Word' : "text summariser" ,
-'libraries' : "nltk,spacy" }
+'Domain_name' : "Computer Vision",
+'Description ': "Computer vision helps computer understand images.",
+'Real_Word' : "Face Recognition Medical Images Analysis" ,
+'Pythom libraries' : "OpenCV" }
 
 speech_processing = {
-'Domain_name' : "NLP",
-'Description ': "Natural language processing ",
-'Real-Word' : "text summariser" ,
-'libraries' : "nltk,spacy" }
+'Domain_name' : "Speech Processing",
+'Description ': "Speech Processing helps computer understand and generate humna speech. ",
+'Real-Word' : "Speech-to-Text" ,
+'Pthon libraries' : "SpeechRecognition,pyAudio" }
 
 robotics = {
-'Domain_name' : "NLP",
-'Description ': "Natural language processing ",
-'Real_Word' : "text summariser" ,
-'libraries' : "nltk,spacy" }
-
-
+'Domain_name' : "Robotics",
+'Description ': "Robotics user AI to make robots perform intelligent tasks.",
+'Real_Word' : "Industrial Robots, Self-driving Robots" ,
+'libraries' : "openCV,ROS" }
 print('Please seclt your option')
 print('1.nlp')
 print('2.coputer_vision')
