@@ -5,15 +5,25 @@ import json
 import time
 
 load_dotenv()
-
+data_all = []
 api_key = input("Enter your APY KEY")
 model_name = input("Enter Model Name")
 prompt = input('Enter your prompt')
+
 temperature = float(input("Enter Temperature"))
 top_p = float(input("Enter Top-p:"))
 maximum_tokens = input("Enter Maximum tokens") 
-stop_sequence = input("Enter  stop Sequence ")
 
+if temperature >= 0 or temperature <=1:
+    temp = temperature
+else:
+    print("Please Enter Valid Temperature between 0 and 1")
+
+if top_p>=0 or top_p <=1:
+    top__p = top_p
+else:
+    print("Please Enter Valid Top P between 0 and 1")
+    
 client = SarvamAI(
     api_subscription_key=os.getenv("SARVAM_API_KEY") 
 )
@@ -36,10 +46,6 @@ response = client.chat.completions(
 )
 end_time = time.time()
 
-
-#Generated Response
-Generated_Response = response
-response_time = end_time - start_time # response time 
 
 response_text = Generated_Response.choices[0].message.content
 print("generated response")
