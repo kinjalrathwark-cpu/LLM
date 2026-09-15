@@ -1,47 +1,48 @@
-from sarvamai import SarvamAI
+from google import genai
 from dotenv import load_dotenv
-import os
-import json
 import time
+import os 
 
 load_dotenv()
 
-
-client = SarvamAI(
-    api_subscription_key=os.getenv("SARVAM_API_KEY")
+client = genai.Client(
+    api_key= os.getenv("GEMINI_API_KEY")
 )
 
-user_prompt = input("Enter your prompt:")
+user_prompt = input("Enter Text:")
 
-start_time = time.time()
+start=time.time()
 
-response = client.chat.completions(
-    model="sarvam-105b",
-    messages=[{'role':'user','content': user_prompt}]
-    )
+response = client.models.generate_content(
+    model="gemini-3.6-flash",     
+    contents=user_prompt
+)
 
-end_time = time.time()
+end=time.time()
 
-AI_response = response
-response_text = AI_response.choices[0].message.content
-characters = len(response_text.split())
-response_length = len(response_text)
-word_count = len(response_text.split())
-processing_time = end_time - start_time
-model_name = "GPT-4"
+print("gemini response")
+print(response.text)
 
-if word_count <= 50:
-    category = "Short"
-elif word_count <= 150:
-    category = "Medium"
+total_time=end-start
+
+characters=len(user_prompt)
+word=len(user_prompt.split())
+
+print("gemini response")
+print(response.text)
+
+
+print(f"characters lenth:{characters}")
+print(f"word lenth:{word}")
+print(f"Total Processing Time:{total_time}")
+print("Model Name:gemini-3.6-flash") 
+
+
+if word<50:
+    print("Short")
+elif word<=150:
+    print("Medium")
 else:
-    category = "Long"
+    print("Long")
 
-
-print("AI_response",AI_response)
-print("Response Length:", response_length)
-print("charaters:",characters)
-print("Words:", word_count)
-print("processing_time",processing_time)
-print("Model Name:" , model_name)
-
+print(response)
