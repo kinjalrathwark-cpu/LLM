@@ -1,194 +1,180 @@
-import asyncio
-import csv
-import json
+from google import genai
+from google.genai import errors
+from dotenv import load_dotenv
 import os
+import csv
 import time
-from sarvamai import AsyncSarvamAI
+import json
 
-# Configurations & Cost Estimations
-MODEL_CONTEXT_LIMIT = 8192
-INPUT_CSV_PATH = "prompts.csv"
-OUTPUT_FILE_PATH = "batch_results.json"  # Change to output.csv to export as CSV
+load_dotenv()
 
-# Adjust pricing per 1,000 tokens based on target model pricing
-COST_PER_1K_INPUT_TOKENS = 0.0015
-COST_PER_1K_OUTPUT_TOKENS = 0.0020
+# Initialize the Google GenAI client
+client = genai.Client(
+    api_key=os.getenv("genai_api_key")
+)
 
+def estimate_cost(total_tokens, model_name):
+    # Nominal pricing estimation formula per 1M tokens (adjust based on actual model tier)
+    return (total_tokens / 1_000_000) * 0.10
 
-DELAY_BETWEEN_REQUESTS = 1.0  # Delay in seconds between calls
-MAX_RETRIES = 3
-INITIAL_BACKOFF = 2.0  # Base delay in seconds for exponential backoff
-
-
-def estimate_tokens(text: str) -> int:
-    """Rough estimation of token count (~4 characters per token)."""
-    return max(1, len(text) // 4) if text else 0
-
-
-def calculate_cost(input_tokens: int, output_tokens: int) -> float:
-    """Calculates estimated API cost based on token counts."""
-    input_cost = (input_tokens / 1000.0) * COST_PER_1K_INPUT_TOKENS
-    output_cost = (output_tokens / 1000.0) * COST_PER_1K_OUTPUT_TOKENS
-    return input_cost + output_cost
-
-
-def read_prompts_from_csv(file_path: str):
-    """Reads prompts from a CSV file (expects column named 'prompt' or takes first column)."""
-    prompts = []
-    if not os.path.exists(file_path):
-        print(f"[Error] CSV file '{file_path}' not found.")
-        return prompts
-
-    with open(file_path, "r", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        if reader.fieldnames and "prompt" in reader.fieldnames:
-            for row in reader:
-                if row["prompt"].strip():
-                    prompts.append(row["prompt"].strip())
-        else:
-            # Fallback to reading raw lines if no header found
-            f.seek(0)
-            raw_reader = csv.reader(f)
-            for row in raw_reader:
-                if row and row[0].strip():
-                    prompts.append(row[0].strip())
-    return prompts
-
-
-async def send_prompt_with_retry(client, model_name, prompt, temp, top_p, max_tokens):
-    """Sends prompt to the API with retry logic and exponential backoff for rate limits."""
-    messages = [{"role": "user", "content": prompt}]
-    attempt = 0
-    backoff = INITIAL_BACKOFF
-
-    while attempt <= MAX_RETRIES:
-        try:
-            start_time = time.perf_counter()
-            response = await client.chat.completions(
-                model=model_name,
-                messages=messages,
-                temperature=temp,
-                top_p=top_p,
-                max_tokens=max_tokens,
-                stream=False,
-            )
-            response_time = time.perf_counter() - start_time
-            response_text = response.choices[0].message.content
-            return True, response_text, response_time
-
-        except Exception as e:
-            attempt += 1
-            if attempt > MAX_RETRIES:
-                return False, str(e), 0.0
-            
-            print(f"   [API Error/Rate Limit] Retry {attempt}/{MAX_RETRIES} in {backoff}s... (Error: {e})")
-            await asyncio.sleep(backoff)
-            backoff *= 2  # Exponential backoff
-
-
-async def main():
-    user_api = input("Enter API Key: ").strip()
-    model_name = input("Enter Model Name: ").strip()
-
+def main():
+    print("=== Batch Prompt Processor with Google GenAI ===")
+    
+    # User inputs for configuration matching your prompt flow
+    model_name = input("Enter Model Name [gemini-3.8-flash]: ").strip() or "gemini-3.8-flash"
+    
     try:
-        temp = float(input("Enter temperature (0-1) [0.7]: ") or 0.7)
-    except ValueError:
-        temp = 0.7
-
-    try:
+        temperature = float(input("Enter temperature (0-1) [0.7]: ") or 0.7)
         top_p = float(input("Enter Top P (0-1) [1.0]: ") or 1.0)
-    except ValueError:
-        top_p = 1.0
-
-    try:
         max_tokens = int(input("Enter Maximum Tokens (<=500) [100]: ") or 100)
     except ValueError:
-        max_tokens = 100
+        temperature, top_p, max_tokens = 0.7, 1.0, 100
 
-    prompts = read_prompts_from_csv(INPUT_CSV_PATH)
-    if not prompts:
-        print("No prompts found to process. Exiting.")
+    csv_filename = "prompts.csv"
+    
+    # 1. Check and read prompts from CSV
+    if not os.path.exists(csv_filename):
+        print(f"\n[Error] CSV file '{csv_filename}' not found.")
+        print("Please create 'prompts.csv' with a 'prompt' column before running.")
         return
 
-    client = AsyncSarvamAI(api_subscription_key=GEMINI_API_KEY)
+    prompts = []
+    try:
+        with open(csv_filename, mode="r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                if "prompt" in row:
+                    prompts.append(row["prompt"])
+                elif row:
+                    # Fallback to first column if 'prompt' header isn't explicitly named
+                    prompts.append(list(row.values())[0])
+    except Exception as e:
+        print(f"\n[Error reading CSV]: {e}")
+        return
+
+    if not prompts:
+        print("\nNo prompts found to process. Exiting.")
+        return
+
+    print(f"\nLoaded {len(prompts)} prompts. Starting batch processing...\n")
 
     results = []
     successful_requests = 0
     failed_requests = 0
-    total_input_tokens = 0
-    total_output_tokens = 0
+    total_tokens_used = 0
     total_cost = 0.0
 
-    print(f"\nStarting Batch Processing ({len(prompts)} prompts)\n")
-
-    for idx, prompt in enumerate(prompts, 1):
-        print(f"Processing Prompt [{idx}/{len(prompts)}]: \"{prompt[:40]}...\"")
+    # 2. Iterate through prompts one by one
+    for i, prompt in enumerate(prompts, 1):
+        print(f"[{i}/{len(prompts)}] Processing status: Running...")
+        start_time = time.time()
         
-        prompt_tokens = estimate_tokens(prompt)
-        success, response_text, response_time = await send_prompt_with_retry(
-            client, model_name, prompt, temp, top_p, max_tokens
-        )
+        try:
+            config = {
+                "temperature": temperature,
+                "top_p": top_p,
+                "max_output_tokens": max_tokens,
+            }
 
-        if success:
+            # API Call
+            response = client.models.generate_content(
+                model=model_name,
+                contents=prompt,
+                config=config
+            )
+            
+            end_time = time.time()
+            response_time = end_time - start_time
+            
+            # 3. Extract actual token usage or fallback estimate
+            usage = getattr(response, "usage_metadata", None)
+            tokens = usage.total_token_count if usage and hasattr(usage, "total_token_count") else len(prompt.split()) + len(response.text.split())
+            
+            cost = estimate_cost(tokens, model_name)
+            
             successful_requests += 1
-            status = "Success"
-            completion_tokens = estimate_tokens(response_text)
-            cost = calculate_cost(prompt_tokens, completion_tokens)
-
-            total_input_tokens += prompt_tokens
-            total_output_tokens += completion_tokens
+            total_tokens_used += tokens
             total_cost += cost
 
-            print(f" Status: SUCCESS | Time: {response_time:.2f}s | Est. Tokens: {prompt_tokens + completion_tokens} | Est. Cost: ${cost:.6f}")
-        else:
+            result_text = response.text.strip()
+            print(f"  -> Status: Success | Time: {response_time:.2f}s | Tokens: {tokens} | Cost: ${cost:.6f}")
+
+            results.append({
+                "prompt": prompt,
+                "response": result_text,
+                "status": "Success",
+                "response_time_seconds": round(response_time, 2),
+                "token_count": tokens,
+                "estimated_cost_usd": round(cost, 6)
+            })
+
+        except errors.APIError as e:
+            end_time = time.time()
+            response_time = end_time - start_time
             failed_requests += 1
-            status = "Failed"
-            completion_tokens = 0
-            cost = 0.0
-            print(f" Status: FAILED | Error: {response_text}")
+            print(f"  -> Status: Failed [API Error] | Time: {response_time:.2f}s | Error: {e}")
+            results.append({
+                "prompt": prompt,
+                "response": str(e),
+                "status": "Failed",
+                "response_time_seconds": round(response_time, 2),
+                "token_count": 0,
+                "estimated_cost_usd": 0.0
+            })
+        except Exception as e:
+            end_time = time.time()
+            response_time = end_time - start_time
+            failed_requests += 1
+            print(f"  -> Status: Failed [Error] | Time: {response_time:.2f}s | Error: {e}")
+            results.append({
+                "prompt": prompt,
+                "response": str(e),
+                "status": "Failed",
+                "response_time_seconds": round(response_time, 2),
+                "token_count": 0,
+                "estimated_cost_usd": 0.0
+            })
 
-        results.append({
-            "id": idx,
-            "prompt": prompt,
-            "status": status,
-            "response": response_text if success else None,
-            "error": response_text if not success else None,
-            "response_time_seconds": round(response_time, 3),
-            "input_tokens": prompt_tokens,
-            "output_tokens": completion_tokens,
-            "total_tokens": prompt_tokens + completion_tokens,
-            "estimated_cost_usd": round(cost, 6)
-        })
+        # 4. Respect API rate limits with a short polite delay between requests
+        time.sleep(1.0)
 
-        # Rate-limiting delay between sequential calls
-        await asyncio.sleep(DELAY_BETWEEN_REQUESTS)
+    # 5. Generate Summary Report metrics
+    summary = {
+        "total_prompts_processed": len(prompts),
+        "successful_requests": successful_requests,
+        "failed_requests": failed_requests,
+        "total_estimated_token_usage": total_tokens_used,
+        "total_estimated_api_cost_usd": round(total_cost, 6)
+    }
 
-    # --- Summary Report ---
-    total_tokens_all = total_input_tokens + total_output_tokens
+    print("\n" + "="*45)
+    print("           BATCH SUMMARY REPORT")
+    print("="*45)
+    print(f"Total Prompts Processed : {summary['total_prompts_processed']}")
+    print(f"Successful Requests     : {summary['successful_requests']}")
+    print(f"Failed Requests         : {summary['failed_requests']}")
+    print(f"Total Token Usage       : {summary['total_estimated_token_usage']}")
+    print(f"Total Estimated Cost    : ${summary['total_estimated_api_cost_usd']:.6f}")
+    print("="*45)
 
-    print(": SUMMARY REPORT : ")
-    print(f"Total Prompts Processed : {len(prompts)}")
-    print(f"Successful Requests     : {successful_requests}")
-    print(f"Failed Requests         : {failed_requests}")
-    print(f"Total Input Tokens      : {total_input_tokens}")
-    print(f"Total Output Tokens     : {total_output_tokens}")
-    print(f"Total Estimated Tokens  : {total_tokens_all}")
-    print(f"Total Estimated API Cost: ${total_cost:.6f}")
-
-    # Exporting Results
-    if OUTPUT_FILE_PATH.endswith(".json"):
-        with open(OUTPUT_FILE_PATH, "w", encoding="utf-8") as f:
-            json.dump(results, f, indent=4, ensure_ascii=False)
-        print(f"Results successfully exported to JSON: {OUTPUT_FILE_PATH}")
-
-    elif OUTPUT_FILE_PATH.endswith(".csv"):
-        fieldnames = list(results[0].keys()) if results else []
-        with open(OUTPUT_FILE_PATH, "w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
+    # 6. Export results and summary to CSV and JSON files
+    output_csv = "batch_results.csv"
+    try:
+        with open(output_csv, mode="w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=["prompt", "response", "status", "response_time_seconds", "token_count", "estimated_cost_usd"])
             writer.writeheader()
             writer.writerows(results)
-        print(f"Results successfully exported to CSV: {OUTPUT_FILE_PATH}")
+        print(f"\n[Export]: Detailed results saved to '{output_csv}'")
+    except Exception as e:
+        print(f"[Export Error]: Could not save CSV: {e}")
 
+    output_json = "summary_report.json"
+    try:
+        with open(output_json, mode="w", encoding="utf-8") as f:
+            json.dump({"summary": summary, "results": results}, f, indent=4)
+        print(f"[Export]: Summary report saved to '{output_json}'")
+    except Exception as e:
+        print(f"[Export Error]: Could not save JSON: {e}")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
